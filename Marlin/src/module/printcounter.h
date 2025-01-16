@@ -1,9 +1,9 @@
 /**
  * Marlin 3D Printer Firmware
- * Copyright (C) 2016 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
+ * Copyright (c) 2020 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
  *
  * Based on Sprinter and grbl.
- * Copyright (C) 2011 Camiel Gubbels / Erik van der Zalm
+ * Copyright (c) 2011 Camiel Gubbels / Erik van der Zalm
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,12 +16,10 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
-
-#ifndef PRINTCOUNTER_H
-#define PRINTCOUNTER_H
+#pragma once
 
 #include "../libs/stopwatch.h"
 #include "../libs/duration_t.h"
@@ -30,31 +28,33 @@
 // Print debug messages with M111 S2
 //#define DEBUG_PRINTCOUNTER
 
-#if ENABLED(I2C_EEPROM) || ENABLED(SPI_EEPROM)
-  // round up address to next page boundary (assuming 32 byte pages)
-  #define STATS_EEPROM_ADDRESS 0x40
-#else
-  #define STATS_EEPROM_ADDRESS 0x32
-#endif
+// Round up I2C / SPI address to next page boundary (assuming 32 byte pages)
+#define STATS_EEPROM_ADDRESS TERN(USE_WIRED_EEPROM, 0x40, 0x32)
 
-struct printStatistics {    // 16 bytes (20 with real doubles)
+struct printStatistics {    // 16 bytes
   //const uint8_t magic;    // Magic header, it will always be 0x16
   uint16_t totalPrints;     // Number of prints
   uint16_t finishedPrints;  // Number of complete prints
   uint32_t printTime;       // Accumulated printing time
   uint32_t longestPrint;    // Longest successful print job
-  double   filamentUsed;    // Accumulated filament consumed in mm
+  #if HAS_EXTRUDERS
+    float  filamentUsed;    // Accumulated filament consumed in mm
+  #endif
+  #if SERVICE_INTERVAL_1 > 0
+    uint32_t nextService1;  // Service intervals (or placeholders)
+  #endif
+  #if SERVICE_INTERVAL_2 > 0
+    uint32_t nextService2;
+  #endif
+  #if SERVICE_INTERVAL_3 > 0
+    uint32_t nextService3;
+  #endif
 };
 
 class PrintCounter: public Stopwatch {
   private:
     typedef Stopwatch super;
-
-    #if ENABLED(I2C_EEPROM) || ENABLED(SPI_EEPROM) || defined(CPU_32_BIT)
-      typedef uint32_t promdress;
-    #else
-      typedef uint16_t promdress;
-    #endif
+    typedef IF<ANY(USE_WIRED_EEPROM, CPU_32_BIT), uint32_t, uint16_t>::type eeprom_address_t;
 
     static printStatistics data;
 
@@ -62,25 +62,24 @@ class PrintCounter: public Stopwatch {
      * @brief EEPROM address
      * @details Defines the start offset address where the data is stored.
      */
-    static const promdress address;
+    static const eeprom_address_t address;
 
     /**
      * @brief Interval in seconds between counter updates
      * @details This const value defines what will be the time between each
      * accumulator update. This is different from the EEPROM save interval.
-     *
-     * @note The max value for this option is 60(s), otherwise integer
-     * overflow will happen.
      */
-    static const uint16_t updateInterval;
+    static constexpr millis_t updateInterval = SEC_TO_MS(10);
 
-    /**
-     * @brief Interval in seconds between EEPROM saves
-     * @details This const value defines what will be the time between each
-     * EEPROM save cycle, the development team recommends to set this value
-     * no lower than 3600 secs (1 hour).
-     */
-    static const uint16_t saveInterval;
+    #if PRINTCOUNTER_SAVE_INTERVAL > 0
+      /**
+       * @brief Interval in seconds between EEPROM saves
+       * @details This const value defines what will be the time between each
+       * EEPROM save cycle, the development team recommends to set this value
+       * no lower than 3600 secs (1 hour).
+       */
+      static constexpr millis_t saveInterval = MIN_TO_MS(PRINTCOUNTER_SAVE_INTERVAL);
+    #endif
 
     /**
      * @brief Timestamp of the last call to deltaDuration()
@@ -110,7 +109,7 @@ class PrintCounter: public Stopwatch {
     /**
      * @brief Initialize the print counter
      */
-    static inline void init() {
+    static void init() {
       super::init();
       loadStats();
     }
@@ -122,13 +121,15 @@ class PrintCounter: public Stopwatch {
      */
     FORCE_INLINE static bool isLoaded() { return loaded; }
 
-    /**
-     * @brief Increment the total filament used
-     * @details The total filament used counter will be incremented by "amount".
-     *
-     * @param amount The amount of filament used in mm
-     */
-    static void incFilamentUsed(double const &amount);
+    #if HAS_EXTRUDERS
+      /**
+       * @brief Increment the total filament used
+       * @details The total filament used counter will be incremented by "amount".
+       *
+       * @param amount The amount of filament used in mm
+       */
+      static void incFilamentUsed(float const &amount);
+    #endif
 
     /**
      * @brief Reset the Print Statistics
@@ -173,8 +174,16 @@ class PrintCounter: public Stopwatch {
      * The following functions are being overridden
      */
     static bool start();
-    static bool stop();
+    static bool _stop(const bool completed);
+    static bool stop()  { return _stop(true);  }
+    static bool abort() { return _stop(false); }
+
     static void reset();
+
+    #if HAS_SERVICE_INTERVALS
+      static void resetServiceInterval(const int index);
+      static bool needsService(const int index);
+    #endif
 
     #if ENABLED(DEBUG_PRINTCOUNTER)
 
@@ -193,5 +202,3 @@ class PrintCounter: public Stopwatch {
 #else
   extern Stopwatch print_job_timer;
 #endif
-
-#endif // PRINTCOUNTER_H

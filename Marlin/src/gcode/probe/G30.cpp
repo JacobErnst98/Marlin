@@ -1,9 +1,9 @@
 /**
  * Marlin 3D Printer Firmware
- * Copyright (C) 2016 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
+ * Copyright (c) 2020 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
  *
  * Based on Sprinter and grbl.
- * Copyright (C) 2011 Camiel Gubbels / Erik van der Zalm
+ * Copyright (c) 2011 Camiel Gubbels / Erik van der Zalm
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,7 +16,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
 
@@ -28,45 +28,89 @@
 #include "../../module/motion.h"
 #include "../../module/probe.h"
 #include "../../feature/bedlevel/bedlevel.h"
+#include "../../lcd/marlinui.h"
+
+#if HAS_PTC
+  #include "../../feature/probe_temp_comp.h"
+#endif
+
+#if ANY(DWIN_CREALITY_LCD_JYERSUI, EXTENSIBLE_UI)
+  #define VERBOSE_SINGLE_PROBE
+#endif
 
 /**
- * G30: Do a single Z probe at the current XY
+ * G30: Do a single Z probe at the given XY (default: current)
  *
  * Parameters:
  *
  *   X   Probe X position (default current X)
  *   Y   Probe Y position (default current Y)
  *   E   Engage the probe for each probe (default 1)
+ *   C   Enable probe temperature compensation (0 or 1, default 1)
  */
 void GcodeSuite::G30() {
-  const float xpos = parser.linearval('X', current_position[X_AXIS] + X_PROBE_OFFSET_FROM_EXTRUDER),
-              ypos = parser.linearval('Y', current_position[Y_AXIS] + Y_PROBE_OFFSET_FROM_EXTRUDER);
 
-  if (!position_is_reachable_by_probe(xpos, ypos)) return;
+  xy_pos_t probepos = current_position;
 
-  // Disable leveling so the planner won't mess with us
-  #if HAS_LEVELING
-    set_bed_leveling_enabled(false);
-  #endif
+  const bool seenX = parser.seenval('X');
+  if (seenX) probepos.x = RAW_X_POSITION(parser.value_linear_units());
+  const bool seenY = parser.seenval('Y');
+  if (seenY) probepos.y = RAW_Y_POSITION(parser.value_linear_units());
 
-  setup_for_endstop_or_probe_move();
+  probe.use_probing_tool();
 
-  const ProbePtRaise raise_after = parser.boolval('E', true) ? PROBE_PT_STOW : PROBE_PT_NONE;
-  const float measured_z = probe_pt(xpos, ypos, raise_after, 1);
+  if (probe.can_reach(probepos)) {
 
-  if (!isnan(measured_z)) {
-    SERIAL_PROTOCOLPAIR_F("Bed X: ", xpos);
-    SERIAL_PROTOCOLPAIR_F(" Y: ", ypos);
-    SERIAL_PROTOCOLLNPAIR_F(" Z: ", measured_z);
+    // Disable leveling so the planner won't mess with us
+    TERN_(HAS_LEVELING, set_bed_leveling_enabled(false));
+
+    // Disable feedrate scaling so movement speeds are correct
+    remember_feedrate_scaling_off();
+
+    // With VERBOSE_SINGLE_PROBE home only if needed
+    TERN_(VERBOSE_SINGLE_PROBE, process_subcommands_now(F("G28O")));
+
+    // Raise after based on the 'E' parameter
+    const ProbePtRaise raise_after = parser.boolval('E', true) ? PROBE_PT_STOW : PROBE_PT_NONE;
+
+    // Use 'C' to set Probe Temperature Compensation ON/OFF (on by default)
+    TERN_(HAS_PTC, ptc.set_enabled(parser.boolval('C', true)));
+
+    // Probe the bed, optionally raise, and return the measured height
+    const float measured_z = probe.probe_at_point(probepos, raise_after);
+
+    // After probing always re-enable Probe Temperature Compensation
+    TERN_(HAS_PTC, ptc.set_enabled(true));
+
+    // Report a good probe result to the host and LCD
+    if (!isnan(measured_z)) {
+      const xy_pos_t lpos = probepos.asLogical();
+      SString<30> msg(
+        F("Bed X:"), p_float_t(lpos.x, 2),
+        F(  " Y:"), p_float_t(lpos.y, 2),
+        F(  " Z:"), p_float_t(measured_z, 3)
+      );
+      msg.echoln();
+      TERN_(VERBOSE_SINGLE_PROBE, ui.set_status(msg));
+    }
+
+    // Restore feedrate scaling
+    restore_feedrate_and_scaling();
+
+    // Move the nozzle to the position of the probe
+    do_blocking_move_to(probepos);
+
+    if (raise_after == PROBE_PT_STOW)
+      probe.move_z_after_probing();
+
+    report_current_position();
+  }
+  else {
+    SERIAL_ECHOLN(GET_EN_TEXT_F(MSG_ZPROBE_OUT));
+    LCD_MESSAGE(MSG_ZPROBE_OUT);
   }
 
-  clean_up_after_endstop_or_probe_move();
-
-  #ifdef Z_AFTER_PROBING
-    if (raise_after == PROBE_PT_STOW) move_z_after_probing();
-  #endif
-
-  report_current_position();
+  probe.use_probing_tool(false);
 }
 
 #endif // HAS_BED_PROBE

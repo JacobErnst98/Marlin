@@ -1,9 +1,9 @@
 /**
  * Marlin 3D Printer Firmware
- * Copyright (C) 2016 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
+ * Copyright (c) 2020 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
  *
  * Based on Sprinter and grbl.
- * Copyright (C) 2011 Camiel Gubbels / Erik van der Zalm
+ * Copyright (c) 2011 Camiel Gubbels / Erik van der Zalm
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,7 +16,7 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
 
@@ -36,14 +36,15 @@
  *  K[yz_factor] - New YZ skew factor
  */
 void GcodeSuite::M852() {
-  uint8_t ijk = 0, badval = 0, setval = 0;
+  if (!parser.seen("SIJK")) return M852_report();
 
-  if (parser.seen('I') || parser.seen('S')) {
-    ++ijk;
+  uint8_t badval = 0, setval = 0;
+
+  if (parser.seenval('I') || parser.seenval('S')) {
     const float value = parser.value_linear_units();
     if (WITHIN(value, SKEW_FACTOR_MIN, SKEW_FACTOR_MAX)) {
-      if (planner.xy_skew_factor != value) {
-        planner.xy_skew_factor = value;
+      if (planner.skew_factor.xy != value) {
+        planner.skew_factor.xy = value;
         ++setval;
       }
     }
@@ -53,12 +54,11 @@ void GcodeSuite::M852() {
 
   #if ENABLED(SKEW_CORRECTION_FOR_Z)
 
-    if (parser.seen('J')) {
-      ++ijk;
+    if (parser.seenval('J')) {
       const float value = parser.value_linear_units();
       if (WITHIN(value, SKEW_FACTOR_MIN, SKEW_FACTOR_MAX)) {
-        if (planner.xz_skew_factor != value) {
-          planner.xz_skew_factor = value;
+        if (planner.skew_factor.xz != value) {
+          planner.skew_factor.xz = value;
           ++setval;
         }
       }
@@ -66,12 +66,11 @@ void GcodeSuite::M852() {
         ++badval;
     }
 
-    if (parser.seen('K')) {
-      ++ijk;
+    if (parser.seenval('K')) {
       const float value = parser.value_linear_units();
       if (WITHIN(value, SKEW_FACTOR_MIN, SKEW_FACTOR_MAX)) {
-        if (planner.yz_skew_factor != value) {
-          planner.yz_skew_factor = value;
+        if (planner.skew_factor.yz != value) {
+          planner.skew_factor.yz = value;
           ++setval;
         }
       }
@@ -82,27 +81,26 @@ void GcodeSuite::M852() {
   #endif
 
   if (badval)
-    SERIAL_ECHOLNPGM(MSG_SKEW_MIN " " STRINGIFY(SKEW_FACTOR_MIN) " " MSG_SKEW_MAX " " STRINGIFY(SKEW_FACTOR_MAX));
+    SERIAL_ECHOLNPGM(STR_SKEW_MIN " " STRINGIFY(SKEW_FACTOR_MIN) " " STR_SKEW_MAX " " STRINGIFY(SKEW_FACTOR_MAX));
 
   // When skew is changed the current position changes
   if (setval) {
-    set_current_from_steppers_for_axis(ALL_AXES);
-    SYNC_PLAN_POSITION_KINEMATIC();
+    set_current_from_steppers_for_axis(ALL_AXES_ENUM);
+    sync_plan_position();
     report_current_position();
   }
+}
 
-  if (!ijk) {
-    SERIAL_ECHO_START();
-    SERIAL_ECHOPGM(MSG_SKEW_FACTOR " XY: ");
-    SERIAL_ECHO_F(planner.xy_skew_factor, 6);
-    SERIAL_EOL();
-    #if ENABLED(SKEW_CORRECTION_FOR_Z)
-      SERIAL_ECHOPAIR(" XZ: ", planner.xz_skew_factor);
-      SERIAL_ECHOLNPAIR(" YZ: ", planner.yz_skew_factor);
-    #else
-      SERIAL_EOL();
-    #endif
-  }
+void GcodeSuite::M852_report(const bool forReplay/*=true*/) {
+  TERN_(MARLIN_SMALL_BUILD, return);
+
+  report_heading_etc(forReplay, F(STR_SKEW_FACTOR));
+  SERIAL_ECHOPGM("  M852 I", p_float_t(planner.skew_factor.xy, 6));
+  #if ENABLED(SKEW_CORRECTION_FOR_Z)
+    SERIAL_ECHOLNPGM(" J", p_float_t(planner.skew_factor.xz, 6), " K", p_float_t(planner.skew_factor.yz, 6), " ; XY, XZ, YZ");
+  #else
+    SERIAL_ECHOLNPGM(" ; XY");
+  #endif
 }
 
 #endif // SKEW_CORRECTION_GCODE

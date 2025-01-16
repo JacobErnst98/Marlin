@@ -1,9 +1,9 @@
 /**
  * Marlin 3D Printer Firmware
- * Copyright (C) 2016 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
+ * Copyright (c) 2020 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
  *
  * Based on Sprinter and grbl.
- * Copyright (C) 2011 Camiel Gubbels / Erik van der Zalm
+ * Copyright (c) 2011 Camiel Gubbels / Erik van der Zalm
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,32 +16,36 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
+#pragma once
 
-#ifndef _MARLIN_CONFIG_H_
-#define _MARLIN_CONFIG_H_
+//
+// Prefix header for all Marlin sources
+//
 
-#include "MarlinConfigPre.h"
+#include "MarlinConfigPre-6-type.h" // Include even with __MARLIN_DEPS__
+#include "Conditionals-6-type.h"
 
-#include HAL_PATH(../HAL, HAL.h)
+#ifndef __MARLIN_DEPS__
 
-#include "../pins/pins.h"
+  #include HAL_PATH(.., inc/Conditionals_type.h)
 
-#if defined(__AVR__) && !defined(USBCON)
-  #define HardwareSerial_h // trick to disable the standard HWserial
+  #include "Changes.h"
+
+  // Include all core headers
+  #include "../core/language.h"
+  #include "../core/utility.h"
+  #include "../core/mstring.h"
+  #include "../core/serial.h"
+  #include "../core/endianness.h"
+
 #endif
 
-#include "Conditionals_post.h"
-#include "SanityCheck.h"
+#include "../core/multi_language.h"
 
-#include HAL_PATH(../HAL, SanityCheck.h)
-
-// Include all core headers
-#include "../core/enum.h"
-#include "../core/language.h"
-#include "../core/utility.h"
-#include "../core/serial.h"
-
-#endif // _MARLIN_CONFIG_H_
+#ifndef __MARLIN_DEPS__
+  #include "SanityCheck.h"
+  #include HAL_PATH(.., inc/SanityCheck.h)
+#endif

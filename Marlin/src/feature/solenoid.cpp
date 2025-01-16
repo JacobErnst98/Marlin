@@ -1,9 +1,9 @@
 /**
  * Marlin 3D Printer Firmware
- * Copyright (C) 2016 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
+ * Copyright (c) 2020 MarlinFirmware [https://github.com/MarlinFirmware/Marlin]
  *
  * Based on Sprinter and grbl.
- * Copyright (C) 2011 Camiel Gubbels / Erik van der Zalm
+ * Copyright (c) 2011 Camiel Gubbels / Erik van der Zalm
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -16,66 +16,40 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ * along with this program.  If not, see <https://www.gnu.org/licenses/>.
  *
  */
 
 #include "../inc/MarlinConfig.h"
 
-#if ENABLED(EXT_SOLENOID)
+#if ANY(EXT_SOLENOID, MANUAL_SOLENOID_CONTROL)
 
 #include "solenoid.h"
 
 #include "../module/motion.h" // for active_extruder
+#include "../module/tool_change.h" // for parking_extruder_set_parked
 
-inline void enable_solenoid(const uint8_t num) {
+// Used primarily with MANUAL_SOLENOID_CONTROL
+static void set_solenoid(const uint8_t num, const uint8_t state) {
+  #define _SOL_CASE(N) case N: TERN_(HAS_SOLENOID_##N, OUT_WRITE(SOL##N##_PIN, state)); break;
   switch (num) {
-    case 0:
-      OUT_WRITE(SOL0_PIN, HIGH);
-      break;
-      #if HAS_SOLENOID_1 && EXTRUDERS > 1
-        case 1:
-          OUT_WRITE(SOL1_PIN, HIGH);
-          break;
-      #endif
-      #if HAS_SOLENOID_2 && EXTRUDERS > 2
-        case 2:
-          OUT_WRITE(SOL2_PIN, HIGH);
-          break;
-      #endif
-      #if HAS_SOLENOID_3 && EXTRUDERS > 3
-        case 3:
-          OUT_WRITE(SOL3_PIN, HIGH);
-          break;
-      #endif
-      #if HAS_SOLENOID_4 && EXTRUDERS > 4
-        case 4:
-          OUT_WRITE(SOL4_PIN, HIGH);
-          break;
-      #endif
-    default:
-      SERIAL_ECHO_START();
-      SERIAL_ECHOLNPGM(MSG_INVALID_SOLENOID);
-      break;
+    REPEAT(8, _SOL_CASE)
+    default: SERIAL_ECHO_MSG(STR_INVALID_SOLENOID); break;
   }
+
+  #if ENABLED(PARKING_EXTRUDER)
+    if (state == LOW && active_extruder == num) // If active extruder's solenoid is disabled, carriage is considered parked
+      parking_extruder_set_parked(true);
+  #endif
 }
 
-void enable_solenoid_on_active_extruder() { enable_solenoid(active_extruder); }
+// PARKING_EXTRUDER options alter the default behavior of solenoids to ensure compliance of M380-381
+void  enable_solenoid(const uint8_t num) { set_solenoid(num, TERN1(PARKING_EXTRUDER,  PE_MAGNET_ON_STATE)); }
+void disable_solenoid(const uint8_t num) { set_solenoid(num, TERN0(PARKING_EXTRUDER, !PE_MAGNET_ON_STATE)); }
 
 void disable_all_solenoids() {
-  OUT_WRITE(SOL0_PIN, LOW);
-  #if HAS_SOLENOID_1 && EXTRUDERS > 1
-    OUT_WRITE(SOL1_PIN, LOW);
-  #endif
-  #if HAS_SOLENOID_2 && EXTRUDERS > 2
-    OUT_WRITE(SOL2_PIN, LOW);
-  #endif
-  #if HAS_SOLENOID_3 && EXTRUDERS > 3
-    OUT_WRITE(SOL3_PIN, LOW);
-  #endif
-  #if HAS_SOLENOID_4 && EXTRUDERS > 4
-    OUT_WRITE(SOL4_PIN, LOW);
-  #endif
+  #define _SOL_DISABLE(N) TERN_(HAS_SOLENOID_##N, disable_solenoid(N));
+  REPEAT(8, _SOL_DISABLE)
 }
 
-#endif // EXT_SOLENOID
+#endif // EXT_SOLENOID || MANUAL_SOLENOID_CONTROL
